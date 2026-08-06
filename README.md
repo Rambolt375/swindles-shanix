@@ -1,24 +1,63 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://github.com/vercel/next.js/tree/canary/packages/create-next-app).
+# Money Manager
+
+A simple personal finance dashboard built with Next.js, Tailwind CSS, and Supabase.
+
+This app helps you track your balance, manage wishlist items, and log transactions with a clean mobile-first interface.
+
+## Features
+
+- Dashboard with current balance and safe threshold tracking
+- Wishlist page with:
+  - add new wishlist items
+  - instant local UI updates after adding an item
+  - purchase analytics before buying
+  - convert wishlist items into transactions
+- Transaction history page with delete confirmation
+- Skeleton loading states for better perceived performance
+
+## Tech Stack
+
+- Next.js App Router
+- React client components
+- Tailwind CSS
+- Supabase for authentication and data storage
 
 ## Getting Started
 
-First, run the development server:
+Install dependencies:
+
+```bash
+npm install
+```
+
+Start the development server:
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000) in your browser.
 
-You can start editing the page by modifying `app/page.js`. The page auto-updates as you edit the file.
+## Usage
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+- Visit the home dashboard to see your current balance and safe threshold.
+- Go to the wishlist page to add or manage wishlist items.
+- Select a wishlist item to review purchase impact and complete the purchase.
+- Use the transactions page to review history and delete entries safely.
+
+## Important Behavior
+
+- Newly added wishlist items appear immediately in the UI using the same Supabase row id returned from the database.
+- This allows purchase actions to work without a manual refresh.
+- Purchased wishlist items are marked as `Purchased` and cannot be re-opened.
+
+## Deployment
+
+Deploy to Vercel or any platform that supports Next.js.
+
+For more deployment details, see:
+
+- https://nextjs.org/docs/app/building-your-application/deploying
 
 ## Learn More
 
