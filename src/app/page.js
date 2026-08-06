@@ -36,7 +36,7 @@ export default function Home() {
   const handleLogin = async () => {
     await supabase.auth.signInWithOAuth({
       provider: "github",
-      options: { redirectTo: "http://localhost:3000" },
+      options: { redirectTo: "https://swindles-shanix.vercel.app" },
     });
   };
 
