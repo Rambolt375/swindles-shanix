@@ -2,16 +2,14 @@
 import { useState, useEffect } from "react";
 import { supabase } from "../../utils/supabase";
 import { useRouter } from "next/navigation";
-import Header from "../../components/Header";
 import Navbar from "../../components/Navbar";
 import SkeletonBlock from "../../components/SkeletonBlock";
 
 export default function WishlistIndex() {
-  // 1. GLOBAL FINANCES
   const router = useRouter();
   const [user, setUser] = useState(null);
   const [currentBalance, setCurrentBalance] = useState(0);
-  const [safeThreshold, setSafeThreshold] = useState(1500000); // Default safe threshold
+  const [safeThreshold, setSafeThreshold] = useState(1500000);
   const [wishlistItems, setWishlistItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [toggleForm, setToggleForm] = useState(false);
@@ -20,6 +18,7 @@ export default function WishlistIndex() {
   const [name, setName] = useState("");
   const [price, setPrice] = useState("");
   const [selectedItem, setSelectedItem] = useState(null);
+  const [isPurchasing, setIsPurchasing] = useState(false);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -44,17 +43,11 @@ export default function WishlistIndex() {
     if (user) {
       const fetchBalance = async () => {
         const { data, error } = await supabase
-          .from("transactions")
-          .select("amount")
-          .eq("user_id", user.id);
-
-        if (data) {
-          const totalBalance = data.reduce((sum, tx) => sum + tx.amount, 0);
-          setCurrentBalance(totalBalance);
-        }
-        if (error) {
-          console.error("Error fetching balance:", error);
-        }
+          .from("profiles")
+          .select("balance")
+          .eq("id", user.id)
+          .single();
+        if (data) setCurrentBalance(data.balance);
       };
       fetchBalance();
     }
@@ -80,25 +73,53 @@ export default function WishlistIndex() {
   }, [user]);
 
   const handlePurchase = async () => {
-    if (!selectedItem) return;
+    if (!selectedItem || isPurchasing) return;
+    setIsPurchasing(true);
 
-    const { error: insertError } = await supabase.from("transactions").insert([
-      {
-        user_id: user.id,
-        type: selectedItem.name,
-        category: selectedItem.category,
-        amount: -selectedItem.price,
-      },
-    ]);
+    const price = Number(selectedItem.price);
 
-    if (insertError) return alert("Failed to log transaction");
+    const { data: transaction, error: insertError } = await supabase
+      .from("transactions")
+      .insert([
+        {
+          user_id: user.id,
+          type: selectedItem.name,
+          category: selectedItem.category,
+          amount: -price,
+        },
+      ])
+      .select()
+      .single();
+
+    if (insertError) {
+      setIsPurchasing(false);
+      return alert("Failed to log transaction");
+    }
 
     const { error: updateError } = await supabase
       .from("wishlist")
       .update({ status: "purchased" })
-      .eq("id", selectedItem.id);
+      .eq("id", selectedItem.id)
+      .eq("user_id", user.id)
+      .eq("status", "dreaming");
 
-    if (updateError) return alert("Failed to update wishlist");
+    if (updateError) {
+      await supabase.from("transactions").delete().eq("id", transaction.id);
+      setIsPurchasing(false);
+      return alert("Failed to update wishlist. Transaction rolled back.");
+    }
+
+    // C. Deduct the money from the Profiles table!
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("balance")
+      .eq("id", user.id)
+      .single();
+    const newBalance = (profile?.balance || 0) - price;
+    await supabase
+      .from("profiles")
+      .update({ balance: newBalance })
+      .eq("id", user.id);
 
     setWishlistItems((prev) =>
       sortWishlistItems(
@@ -107,6 +128,8 @@ export default function WishlistIndex() {
         ),
       ),
     );
+    setCurrentBalance(newBalance);
+    setIsPurchasing(false);
     setSelectedItem(null);
   };
 
@@ -126,7 +149,13 @@ export default function WishlistIndex() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!name || !category || !price)
+    if (
+      !name ||
+      !category ||
+      !price ||
+      !Number.isFinite(Number(price)) ||
+      Number(price) <= 0
+    )
       return alert("Please fill in all fields.");
     setIsSubmitting(true);
 
@@ -149,10 +178,9 @@ export default function WishlistIndex() {
     } else {
       const newItem = {
         ...data,
-        status: data.status ?? "pending",
+        status: data.status ?? "dreaming",
       };
 
-      // Reset form fields and close the form
       setName("");
       setPrice("");
       setCategory("");
@@ -193,7 +221,6 @@ export default function WishlistIndex() {
             </div>
           ) : (
             <>
-              {/* THE THRESHOLD DASHBOARD */}
               <div className="bg-slate-900 text-white p-5 rounded-xl mb-6 shadow-md border border-slate-800">
                 <div className="flex justify-between items-center">
                   <div>
@@ -205,7 +232,6 @@ export default function WishlistIndex() {
                     </p>
                   </div>
 
-                  {/* The Updatable Input */}
                   <div className="flex items-center gap-1 bg-slate-800 px-3 py-2 rounded-lg border border-slate-700 focus-within:border-blue-500 transition-colors">
                     <span className="text-sm font-bold text-blue-400">Rp</span>
                     <input
@@ -294,11 +320,9 @@ export default function WishlistIndex() {
           )}
         </div>
 
-        {/* THE "SHOW" MODAL (moved to page root) */}
         <Navbar />
       </div>
 
-      {/* Root-level modals so backdrops cover the full viewport */}
       {toggleForm && (
         <div className="fixed inset-0 bg-black/60 z-50 flex justify-center items-center p-4">
           <div className="w-full max-w-md bg-white p-6 rounded-2xl shadow-2xl relative">
@@ -315,9 +339,7 @@ export default function WishlistIndex() {
               </button>
             </div>
 
-            {/* The Form */}
             <form onSubmit={handleSubmit} className="space-y-4">
-              {/* Input 1: Name */}
               <div>
                 <label className="text-sm font-semibold text-slate-600 block mb-1">
                   Item Name
@@ -346,7 +368,6 @@ export default function WishlistIndex() {
                 />
               </div>
 
-              {/* Input 3: Price */}
               <div>
                 <label className="text-sm font-semibold text-slate-600 block mb-1">
                   Target Price (Rp)
@@ -366,7 +387,6 @@ export default function WishlistIndex() {
                 </div>
               </div>
 
-              {/* Submit Button */}
               <button
                 type="submit"
                 disabled={isSubmitting}
@@ -382,7 +402,6 @@ export default function WishlistIndex() {
       {selectedItem && (
         <div className="fixed inset-0 bg-black/60 z-50 flex justify-center items-center p-4">
           <div className="w-full max-w-md bg-white rounded-2xl shadow-xl overflow-hidden relative">
-            {/* Close Button */}
             <button
               onClick={() => setSelectedItem(null)}
               className="absolute top-4 right-4 z-10 bg-black/20 hover:bg-red-500 text-white rounded-full w-8 h-8 flex items-center justify-center font-bold transition"
@@ -390,7 +409,6 @@ export default function WishlistIndex() {
               &times;
             </button>
 
-            {/* Header */}
             <div className="bg-slate-900 p-6 text-white pt-10">
               <p className="text-slate-400 text-sm font-medium mb-1">
                 {selectedItem.category}
@@ -400,7 +418,6 @@ export default function WishlistIndex() {
               </h2>
             </div>
 
-            {/* Analytics Engine */}
             <div className="p-6 border-b border-slate-100 space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div className="rounded-2xl bg-slate-100 p-4">
@@ -454,17 +471,21 @@ export default function WishlistIndex() {
               </div>
             </div>
 
-            {/* --- UPGRADED ACTION AREA --- */}
             <div className="p-4 bg-slate-50 flex gap-2">
               <button
                 onClick={handlePurchase}
+                disabled={isPurchasing}
                 className={`flex-1 py-3 rounded-lg font-bold transition ${
                   projectedSafe
                     ? "bg-slate-900 text-white hover:bg-slate-800"
                     : "bg-red-100 text-red-600 hover:bg-red-200"
-                }`}
+                } disabled:opacity-50`}
               >
-                {projectedSafe ? "Purchase Item" : "Purchase Anyway (Warning)"}
+                {isPurchasing
+                  ? "Processing..."
+                  : projectedSafe
+                    ? "Purchase Item"
+                    : "Purchase Anyway (Warning)"}
               </button>
               <button
                 onClick={() => setSelectedItem(null)}

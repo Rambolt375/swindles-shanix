@@ -11,32 +11,32 @@ export default function Home() {
   const [balance, setBalance] = useState(0);
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [avgExpense, setAvgExpense] = useState(0);
+  const [prevMonthExpense, setPrevMonthExpense] = useState(0);
+  const [predictedExpense, setPredictedExpense] = useState(0);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setUser(session?.user ?? null);
-      if (!session?.user) {
-        setLoading(false);
-      }
+      if (!session?.user) setLoading(false);
     });
 
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user ?? null);
-      if (!session?.user) {
-        setLoading(false);
-      }
+      if (!session?.user) setLoading(false);
     });
 
-    // Cleanup listener
     return () => subscription.unsubscribe();
   }, []);
 
   const handleLogin = async () => {
     await supabase.auth.signInWithOAuth({
       provider: "github",
-      options: { redirectTo: "https://swindles-shanix.vercel.app" },
+      // options: { redirectTo: "https://swindles-shanix.vercel.app" },
+      // options: { redirectTo: "http://localhost:3000" },
+      options: { redirectTo: window.location.origin },
     });
   };
 
@@ -45,63 +45,106 @@ export default function Home() {
   };
 
   useEffect(() => {
-    if (user) {
-      const fetchBalance = async () => {
-        const { data, error } = await supabase
-          .from("transactions")
-          .select("amount")
-          .eq("user_id", user.id);
+    if (!user) return;
 
-        if (data) {
-          const totalBalance = data.reduce((sum, tx) => sum + tx.amount, 0);
-          setBalance(totalBalance);
+    const fetchAllUserData = async () => {
+      try {
+        const [profileResponse, txResponse, wishlistResponse] =
+          await Promise.all([
+            supabase
+              .from("profiles")
+              .select("balance")
+              .eq("id", user.id)
+              .single(),
+            supabase
+              .from("transactions")
+              .select("*")
+              .eq("user_id", user.id)
+              .order("created_at", { ascending: false }),
+            supabase
+              .from("wishlist")
+              .select("*")
+              .eq("user_id", user.id)
+              .order("status", { ascending: true })
+              .order("created_at", { ascending: false })
+              .limit(3),
+          ]);
+
+        if (profileResponse.data) {
+          setBalance(profileResponse.data.balance);
         }
-      };
-      fetchBalance();
-    }
-  }, [user]);
 
-  useEffect(() => {
-    if (user) {
-      const fetchLatestTransactions = async () => {
-        const { data, error } = await supabase
-          .from("transactions")
-          .select("*")
-          .eq("user_id", user.id)
-          .order("created_at", { ascending: false })
-          .limit(5);
+        if (txResponse.data) {
+          setLatestTransactions(txResponse.data);
+          const expense = txResponse.data.filter((tx) => tx.amount < 0);
 
-        if (data) {
-          setLatestTransactions(data);
+          const monthly = {};
+          expense.forEach((tx) => {
+            const date = new Date(tx.created_at);
+            const monthYear = `${date.getFullYear()}-${date.getMonth()}`;
+            monthly[monthYear] =
+              (monthly[monthYear] || 0) + Math.abs(tx.amount);
+          });
+
+          const monthlyTotal = Object.keys(monthly).length;
+          const totalExpense = Object.values(monthly).reduce(
+            (sum, amount) => sum + amount,
+            0,
+          );
+          const currentAvg = monthlyTotal > 0 ? totalExpense / monthlyTotal : 0;
+          setAvgExpense(currentAvg);
+
+          const today = new Date();
+          const lastMonthDate = new Date(
+            today.getFullYear(),
+            today.getMonth() - 1,
+            1,
+          );
+          const lastMonthKey = `${lastMonthDate.getFullYear()}-${lastMonthDate.getMonth()}`;
+          setPrevMonthExpense(monthly[lastMonthKey] || 0);
+
+          if (monthlyTotal > 1) {
+            const sortedMonths = Object.keys(monthly).sort((a, b) => {
+              const [yearA, monthA] = a.split("-").map(Number);
+              const [yearB, monthB] = b.split("-").map(Number);
+              return new Date(yearA, monthA) - new Date(yearB, monthB);
+            });
+
+            let sumX = 0,
+              sumY = 0,
+              sumXY = 0,
+              sumXX = 0;
+            const n = monthlyTotal;
+
+            sortedMonths.forEach((key, index) => {
+              const x = index + 1;
+              const y = monthly[key];
+              sumX += x;
+              sumY += y;
+              sumXY += x * y;
+              sumXX += x * x;
+            });
+
+            const m = (n * sumXY - sumX * sumY) / (n * sumXX - sumX * sumX);
+            const b = (sumY - m * sumX) / n;
+
+            const nextMonthPrediction = m * (n + 1) + b;
+
+            setPredictedExpense(Math.max(0, nextMonthPrediction));
+          } else {
+            setPredictedExpense(currentAvg);
+          }
         }
 
-        if (error) {
-          console.error("Error fetching transactions:", error);
-        }
-      };
-      fetchLatestTransactions();
-    }
-  }, [user]);
-
-  useEffect(() => {
-    if (user) {
-      const fetchLatestWishlist = async () => {
-        const { data, error } = await supabase
-          .from("wishlist")
-          .select("*")
-          .eq("user_id", user.id)
-          .order("status", { ascending: true })
-          .order("created_at", { ascending: false })
-          .limit(3);
-
-        setLatestWishlist(data ?? []);
-        if (error) {
-          console.error("Error fetching wishlist:", error);
-        }
+        if (wishlistResponse.data) setLatestWishlist(wishlistResponse.data);
+      } catch (err) {
+        console.error("Unexpected error fetching data:", err);
+      } finally {
         setLoading(false);
-      };
-      fetchLatestWishlist();
-    }
+      }
+    };
+
+    fetchAllUserData();
   }, [user]);
 
   return (
@@ -123,7 +166,7 @@ export default function Home() {
                   Total Balance
                 </h2>
                 <p className="text-5xl font-bold mt-2">
-                  Rp {balance.toLocaleString()}
+                  Rp {(balance ?? 0).toLocaleString()}
                 </p>
               </section>
 
@@ -146,7 +189,7 @@ export default function Home() {
                       No transactions yet.
                     </p>
                   ) : (
-                    latestTransactions.map((tx) => (
+                    latestTransactions.slice(0, 5).map((tx) => (
                       <div
                         key={tx.id}
                         className="flex justify-between items-center bg-slate-50 p-3 rounded-lg"
@@ -197,18 +240,30 @@ export default function Home() {
                       >
                         <div>
                           <p
-                            className={`${item.status === "purchased" ? "font-extralight text-slate-300 line-through" : "font-semibold"}`}
+                            className={`${
+                              item.status === "purchased"
+                                ? "font-extralight text-slate-300 line-through"
+                                : "font-semibold"
+                            }`}
                           >
                             {item.name}
                           </p>
                           <p
-                            className={`text-xs ${item.status === "purchased" ? "text-slate-300 line-through" : "text-slate-500"}`}
+                            className={`text-xs ${
+                              item.status === "purchased"
+                                ? "text-slate-300 line-through"
+                                : "text-slate-500"
+                            }`}
                           >
                             Rp {item.price.toLocaleString()}
                           </p>
                         </div>
                         <div
-                          className={`flex flex-col items-end ${item.status === "purchased" ? "bg-slate-300" : "bg-blue-500"} p-1 px-2 rounded`}
+                          className={`flex flex-col items-end ${
+                            item.status === "purchased"
+                              ? "bg-slate-300"
+                              : "bg-blue-500"
+                          } p-1 px-2 rounded`}
                         >
                           <span className="text-xs text-slate-100">
                             {item.status.charAt(0).toUpperCase() +
@@ -219,6 +274,44 @@ export default function Home() {
                     ))
                   )}
                 </div>
+              </section>
+
+              <section>
+                <div className="flex justify-between items-end border-b-2 border-slate-100 pb-2 mb-4">
+                  <h3 className="text-xl font-bold">
+                    Average Expense Per Month
+                  </h3>
+                </div>
+
+                {!user ? (
+                  <p className="text-sm text-slate-500">
+                    Log in to see your average expense per month.
+                  </p>
+                ) : (
+                  <div className="space-y-4">
+                    <h1>  
+                      Umm, technically 🤓, you spent about{" "}
+                      <strong
+                        style={{ color: avgExpense > 500000 ? "red" : "green" }}
+                      >
+                        Rp {Math.round(avgExpense).toLocaleString()}
+                      </strong>{" "}
+                      per month on average. Projected next month is{" "}
+                      <strong>
+                        Rp {Math.round(predictedExpense).toLocaleString()}.
+                      </strong>{" "}
+                      last month you spent{" "}
+                      <strong>
+                        Rp {Math.round(prevMonthExpense).toLocaleString()}.
+                      </strong>{" "}
+                      Let&apos;s be highly honest here, your average spending this
+                      month is quite{" "}
+                      {avgExpense > 500000
+                        ? "high. You technically waste money here, budget better idiot."
+                        : "low. Brokie."}
+                    </h1>
+                  </div>
+                )}
               </section>
             </>
           )}

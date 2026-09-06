@@ -2,7 +2,6 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../../utils/supabase";
 import { useRouter } from "next/navigation";
-import Header from "../../components/Header";
 import Navbar from "../../components/Navbar";
 import SkeletonBlock from "../../components/SkeletonBlock";
 
@@ -23,7 +22,6 @@ export default function Transactions() {
       if (session?.user) {
         setUser(session.user);
       } else {
-        // If not logged in, kick them back to home
         router.push("/");
       }
     });
@@ -66,7 +64,7 @@ export default function Transactions() {
       finalAmount = Math.abs(finalAmount);
     }
 
-    const { error } = await supabase.from("transactions").insert([
+    const { error: txError } = await supabase.from("transactions").insert([
       {
         user_id: user.id,
         type: type,
@@ -74,39 +72,88 @@ export default function Transactions() {
         amount: finalAmount,
       },
     ]);
-    setIsSubmitting(false);
-    if (error) {
-      console.error("Error adding transaction:", error);
-      alert("Failed to add transaction. Please try again.");
-    } else {
-      setAllTransactions([
-        { id: Date.now(), type, category, amount: finalAmount },
-        ...allTransactions,
-      ]);
-      setType("");
-      setCategory("");
-      setAmount("");
-      setToggleForm(false);
+
+    if (txError) {
+      console.error("Error adding transaction:", txError);
+      alert("Failed to add transaction to database.");
+      setIsSubmitting(false);
+      return;
     }
+
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("balance")
+      .eq("id", user.id)
+      .single();
+
+    const currentBalance = profile?.balance || 0;
+    const newBalance = currentBalance + finalAmount;
+
+    const { error: updateError } = await supabase
+      .from("profiles")
+      .update({ balance: newBalance })
+      .eq("id", user.id);
+
+    if (updateError) {
+      console.error("Error updating balance:", updateError);
+      alert(
+        "Transaction saved, but the balance update was blocked by the database!",
+      );
+      setIsSubmitting(false);
+      return;
+    }
+
+    setAllTransactions([
+      { id: Date.now(), type, category, amount: finalAmount },
+      ...allTransactions,
+    ]);
+    setType("");
+    setCategory("");
+    setAmount("");
+    setToggleForm(false);
+    setIsSubmitting(false);
   };
 
-  const delPurchase = async (id) => {
-    const { error } = await supabase.from("transactions").delete().eq("id", id);
-    if (error) {
-      console.error("Error deleting transaction:", error);
-      alert("Failed to delete transaction. Please try again.");
-    } else {
-      setAllTransactions(allTransactions.filter((tx) => tx.id !== id));
+  const delPurchase = async (id, amount, type) => {
+    await supabase
+      .from("wishlist")
+      .update({ status: "dreaming" })
+      .eq("name", type)
+      .eq("status", "purchased")
+      .eq("user_id", user.id);
+
+    const { error: deleteError } = await supabase
+      .from("transactions")
+      .delete()
+      .eq("id", id)
+      .eq("user_id", user.id);
+
+    if (deleteError) {
+      alert("Failed to delete transaction.");
+      return;
     }
+
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("balance")
+      .eq("id", user.id)
+      .single();
+
+    const currentBalance = profile?.balance || 0;
+    const newBalance = currentBalance - amount;
+
+    await supabase
+      .from("profiles")
+      .update({ balance: newBalance })
+      .eq("id", user.id);
+
+    setAllTransactions(allTransactions.filter((tx) => tx.id !== id));
   };
 
   const confirmDeleteTransaction = async (tx) => {
-    const confirmed = window.confirm(
-      `Delete this transaction?\n\nType: ${tx.type}\nCategory: ${tx.category}\nAmount: Rp ${Math.abs(tx.amount).toLocaleString()}`,
-    );
-
+    const confirmed = window.confirm(`Delete this transaction?`);
     if (confirmed) {
-      await delPurchase(tx.id);
+      await delPurchase(tx.id, tx.amount, tx.type);
     }
   };
 
@@ -127,9 +174,7 @@ export default function Transactions() {
   return (
     <main className="min-h-screen bg-slate-200 flex justify-center">
       <div className="w-full max-w-md bg-blue-50 min-h-screen shadow-xl flex flex-col relative text-slate-900">
-        {/* --- SCROLLABLE CONTENT AREA --- */}
         <div className="flex-1 overflow-y-auto p-6 space-y-8">
-          {/* Section 2: Latest Purchases */}
           <section>
             <div className="flex justify-between items-end border-b-2 border-slate-100 pb-2 mb-4">
               <h3 className="text-xl font-bold">Transaction History</h3>
@@ -141,11 +186,9 @@ export default function Transactions() {
               </button>
             </div>
 
-            {/* --- THE POP-UP MODAL --- */}
             {toggleForm && (
               <div className="fixed inset-0 bg-black/60 z-50 flex justify-center items-center p-4">
                 <div className="bg-white w-full max-w-md p-6 rounded-2xl shadow-2xl relative">
-                  {/* Modal Header & Close Button */}
                   <div className="flex justify-between items-center mb-6 border-b pb-3">
                     <h3 className="text-xl font-bold">New Transaction</h3>
                     <button
@@ -156,7 +199,6 @@ export default function Transactions() {
                     </button>
                   </div>
 
-                  {/* The Toggle */}
                   <div className="flex gap-2 mb-4">
                     <button
                       type="button"
@@ -254,7 +296,6 @@ export default function Transactions() {
           </section>
         </div>
 
-        {/* --- STICKY BOTTOM NAVBAR --- */}
         <Navbar />
       </div>
     </main>
