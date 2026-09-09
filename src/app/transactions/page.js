@@ -275,20 +275,27 @@ export default function Transactions() {
                   <div
                     key={tx.id}
                     className="flex justify-between items-center bg-slate-50 p-3 rounded-lg cursor-pointer hover:bg-slate-100 transition"
-                    onClick={() => confirmDeleteTransaction(tx)}
+                    onContextMenu={() => confirmDeleteTransaction(tx)}
                   >
                     <div>
                       <p className="font-semibold">{tx.type}</p>
                       <p className="text-xs text-slate-500">{tx.category}</p>
                     </div>
-                    <p
-                      className={`font-bold ${
-                        tx.amount < 0 ? "text-red-500" : "text-green-500"
-                      }`}
-                    >
-                      {tx.amount < 0 ? "-" : "+"} Rp{" "}
-                      {Math.abs(tx.amount).toLocaleString()}
-                    </p>
+                    <div>
+                      <p
+                        className={`font-bold ${
+                          tx.amount < 0 ? "text-red-500" : "text-green-500"
+                        }`}
+                      >
+                        {tx.amount < 0 ? "-" : "+"} Rp{" "}
+                        {Math.abs(tx.amount).toLocaleString()}
+                      </p>
+                      <p className="text-xs text-slate-500 text-right">
+                        {new Date(tx.created_at).getDate()}/
+                        {new Date(tx.created_at).getMonth() + 1}/
+                        {new Date(tx.created_at).getFullYear()}
+                      </p>
+                    </div>
                   </div>
                 ))
               )}

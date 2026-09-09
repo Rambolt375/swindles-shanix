@@ -12,7 +12,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata = {
-  title: "Rambolt's Money Manager",
+  title: "Swindles Shanix",
   description:
     "Money Manager App built with Next.js 13, Supabase, and Tailwind CSS",
 };
